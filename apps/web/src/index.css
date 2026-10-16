@@ -1,0 +1,39 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 345 25% 98%;
+    --foreground: 222 38% 16%;
+    --primary: 351 72% 58%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 18% 93%;
+    --secondary-foreground: 222 38% 16%;
+    --muted: 220 18% 94%;
+    --muted-foreground: 220 10% 42%;
+    --accent: 351 65% 95%;
+    --accent-foreground: 351 58% 42%;
+    --border: 220 15% 86%;
+    --radius: 0.75rem;
+  }
+  * { @apply border-border; }
+  html { scroll-behavior: smooth; }
+  body { @apply bg-background text-foreground antialiased; font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11'; }
+  ::selection { @apply bg-primary text-primary-foreground; }
+  .candidate-app .text-white { color: rgb(15 23 42) !important; }
+  .candidate-app .text-slate-400 { color: rgb(71 85 105) !important; }
+  .candidate-app .text-slate-500 { color: rgb(100 116 139) !important; }
+  .candidate-app .text-slate-200, .candidate-app .text-slate-300 { color: rgb(51 65 85) !important; }
+  .candidate-app [class*="border-white/10"] { border-color: rgb(226 232 240) !important; }
+  .candidate-app [class*="bg-white/[.04]"] { background-color: white !important; }
+}
+
+@layer components {
+  .step-icon { @apply relative z-10 mx-auto grid size-16 place-items-center rounded-full border-8 border-white shadow-sm; }
+  .step-icon-rose { @apply bg-rose-100 text-rose-500; }
+  .step-icon-green { @apply bg-emerald-100 text-emerald-600; }
+  .step-icon-blue { @apply bg-sky-100 text-sky-600; }
+  .step-icon-amber { @apply bg-amber-100 text-amber-600; }
+}

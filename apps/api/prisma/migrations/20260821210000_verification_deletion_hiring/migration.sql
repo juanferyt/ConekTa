@@ -1,0 +1,14 @@
+ALTER TYPE "FilePurpose" ADD VALUE IF NOT EXISTS 'COMPANY_VERIFICATION_DOCUMENT';
+ALTER TYPE "ApplicationStatus" ADD VALUE IF NOT EXISTS 'OFFER_SENT';
+ALTER TYPE "ApplicationStatus" ADD VALUE IF NOT EXISTS 'OFFER_ACCEPTED';
+ALTER TYPE "ApplicationStatus" ADD VALUE IF NOT EXISTS 'OFFER_DECLINED';
+ALTER TYPE "ApplicationStatus" ADD VALUE IF NOT EXISTS 'HIRED';
+ALTER TYPE "ApplicationStatus" ADD VALUE IF NOT EXISTS 'CANCELLED';
+CREATE TYPE "DeletionRequestStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'COMPLETED');
+ALTER TABLE "company_profiles" ADD COLUMN "verificationDocumentUrl" TEXT, ADD COLUMN "verificationDocumentName" TEXT, ADD COLUMN "verificationReviewedAt" TIMESTAMP(3), ADD COLUMN "verificationReviewedById" TEXT, ADD COLUMN "verificationReason" TEXT;
+ALTER TABLE "applications" ADD COLUMN "offerSalary" INTEGER, ADD COLUMN "offerCurrency" TEXT NOT NULL DEFAULT 'COP', ADD COLUMN "offeredStartDate" TIMESTAMP(3), ADD COLUMN "offerNotes" TEXT;
+CREATE TABLE "account_deletion_requests" ("id" TEXT NOT NULL, "userId" TEXT NOT NULL, "status" "DeletionRequestStatus" NOT NULL DEFAULT 'PENDING', "reason" TEXT, "adminNote" TEXT, "requestedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "reviewedAt" TIMESTAMP(3), "reviewedById" TEXT, "completedAt" TIMESTAMP(3), CONSTRAINT "account_deletion_requests_pkey" PRIMARY KEY ("id"));
+CREATE INDEX "account_deletion_requests_status_requestedAt_idx" ON "account_deletion_requests"("status", "requestedAt");
+CREATE INDEX "account_deletion_requests_userId_requestedAt_idx" ON "account_deletion_requests"("userId", "requestedAt");
+ALTER TABLE "account_deletion_requests" ADD CONSTRAINT "account_deletion_requests_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "account_deletion_requests" ADD CONSTRAINT "account_deletion_requests_reviewedById_fkey" FOREIGN KEY ("reviewedById") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;

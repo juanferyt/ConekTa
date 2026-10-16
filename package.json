@@ -1,0 +1,30 @@
+{
+  "name": "conekta",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "dev": "concurrently -n web,api -c cyan,magenta \"npm run dev -w @conekta/web\" \"npm run start:dev -w @conekta/api\"",
+    "dev:web": "npm run dev -w @conekta/web",
+    "dev:api": "npm run start:dev -w @conekta/api",
+    "build": "npm run build -w @conekta/api && npm run build -w @conekta/web",
+    "lint": "npm run lint -w @conekta/api && npm run lint -w @conekta/web",
+    "typecheck": "tsc -p apps/api/tsconfig.json --noEmit --incremental false && tsc -p apps/web/tsconfig.app.json --noEmit",
+    "test:unit": "npm run test:unit -w @conekta/api",
+    "test:e2e": "npm run test:e2e -w @conekta/api",
+    "test:academic": "node scripts/run-academic-e2e.cjs",
+    "format": "prettier --write .",
+    "db:generate": "dotenv -e .env -- npm run prisma:generate -w @conekta/api",
+    "db:migrate": "dotenv -e .env -- npm run prisma:migrate -w @conekta/api",
+    "db:studio": "dotenv -e .env -- npm run prisma:studio -w @conekta/api",
+    "db:seed": "dotenv -e .env -- npm run prisma:seed -w @conekta/api",
+    "db:seed:demo": "dotenv -e .env -- npm run prisma:seed:demo -w @conekta/api",
+    "push:keys": "npm exec -w @conekta/api web-push generate-vapid-keys"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "dotenv-cli": "^10.0.0",
+    "prettier": "^3.6.2"
+  },
+  "engines": { "node": ">=20" }
+}

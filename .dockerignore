@@ -1,0 +1,13 @@
+.git
+.github
+.agents
+.codex
+node_modules
+**/node_modules
+**/dist
+**/.vite
+.env
+.env.*
+!.env.example
+coverage
+*.log

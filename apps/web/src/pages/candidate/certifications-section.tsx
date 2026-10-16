@@ -1,0 +1,23 @@
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ExternalLink, Pencil, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { z } from 'zod';
+import { Button } from '@/components/ui/button';
+import { apiFetch, ApiError } from '@/lib/api-client';
+import type { CandidateDashboard, Certification } from './candidate-types';
+import { Panel, QueryState, SectionHeading } from './candidate-page';
+import { Field, TextInput } from './form-utils';
+import { cleanPayload, dateOnly } from './form-helpers';
+
+const schema = z.object({ name: z.string().min(2), issuingEntity: z.string().min(2), issuedAt: z.string().min(1), credentialUrl: z.union([z.literal(''), z.url('URL no válida')]) }); type Values = z.infer<typeof schema>;
+export function CandidateCertifications() {
+  const client = useQueryClient(); const query = useQuery({ queryKey: ['candidate-profile'], queryFn: () => apiFetch<CandidateDashboard>('/candidate/profile') }); const [editing, setEditing] = useState<Certification | 'new' | null>(null); const [message, setMessage] = useState('');
+  const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: { name: '', issuingEntity: '', issuedAt: '', credentialUrl: '' } });
+  useEffect(() => { if (editing && editing !== 'new') form.reset({ name: editing.name, issuingEntity: editing.issuingEntity, issuedAt: dateOnly(editing.issuedAt), credentialUrl: editing.credentialUrl ?? '' }); else if (editing === 'new') form.reset(); }, [editing, form]);
+  const save = useMutation({ mutationFn: (v: Values) => apiFetch(editing === 'new' ? '/candidate/certifications' : `/candidate/certifications/${(editing as Certification).id}`, { method: editing === 'new' ? 'POST' : 'PATCH', body: JSON.stringify(cleanPayload(v)) }), onSuccess: async () => { setEditing(null); setMessage('Certificación guardada.'); await client.invalidateQueries({ queryKey: ['candidate-profile'] }); }, onError: (e) => setMessage(e instanceof ApiError ? e.message : 'No fue posible guardar') });
+  const remove = useMutation({ mutationFn: (id: string) => apiFetch(`/candidate/certifications/${id}`, { method: 'DELETE' }), onSuccess: () => client.invalidateQueries({ queryKey: ['candidate-profile'] }) });
+  if (query.isLoading || query.isError) return <><SectionHeading eyebrow="Aprendizaje continuo" title="Certificaciones" description="Registra credenciales que respalden tus conocimientos." /><QueryState loading={query.isLoading} error={query.isError} /></>;
+  return <><SectionHeading eyebrow="Aprendizaje continuo" title="Certificaciones" description="Añade certificaciones verificables y la institución que las expidió." /><div className="mb-6 flex justify-end"><Button onClick={() => setEditing('new')}><Plus className="mr-2 size-4" />Nueva certificación</Button></div>{editing && <Panel><form className="grid gap-5 md:grid-cols-2" onSubmit={form.handleSubmit((v) => save.mutate(v))}><Field label="Nombre"><TextInput {...form.register('name')} /></Field><Field label="Institución"><TextInput {...form.register('issuingEntity')} /></Field><Field label="Fecha"><TextInput type="date" {...form.register('issuedAt')} /></Field><Field label="URL de credencial" error={form.formState.errors.credentialUrl?.message}><TextInput {...form.register('credentialUrl')} /></Field><div className="flex gap-3 md:col-span-2"><Button disabled={save.isPending}>Guardar certificación</Button><Button type="button" variant="ghost" onClick={() => setEditing(null)}>Cancelar</Button></div>{message && <p className="text-sm text-primary md:col-span-2">{message}</p>}</form></Panel>}<div className="mt-6 space-y-4">{query.data!.profile.certifications.map((item) => <Panel key={item.id} className="flex flex-col justify-between gap-4 sm:flex-row"><div><h2 className="font-semibold text-white">{item.name}</h2><p className="mt-1 text-sm text-slate-400">{item.issuingEntity} · {dateOnly(item.issuedAt)}</p>{item.credentialUrl && <a className="mt-3 inline-flex items-center gap-2 text-sm text-primary" href={item.credentialUrl} target="_blank" rel="noreferrer"><ExternalLink className="size-4" />Ver credencial</a>}</div><div className="flex"><Button variant="ghost" size="sm" onClick={() => setEditing(item)}><Pencil className="size-4" /></Button><Button variant="ghost" size="sm" onClick={() => remove.mutate(item.id)}><Trash2 className="size-4 text-red-300" /></Button></div></Panel>)}{!query.data!.profile.certifications.length && !editing && <Panel><p className="text-slate-400">Aún no has registrado certificaciones.</p></Panel>}</div></>;
+}
