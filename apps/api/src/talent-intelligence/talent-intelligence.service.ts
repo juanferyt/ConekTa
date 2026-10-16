@@ -10,6 +10,7 @@ import { ContributionValidationStatus, SkillLevel } from '@prisma/client';
 import { MailService } from '../mail/mail.service';
 import { calculateMatch, DEFAULT_MATCHING_WEIGHTS } from '../matching/matching.engine';
 import { PrismaService } from '../prisma/prisma.service';
+import { activeCertificateWhere } from '../experiences/certificate-evidence';
 import type { ContributionRequestDto } from './dto/talent-intelligence.dto';
 
 @Injectable()
@@ -34,6 +35,7 @@ export class TalentIntelligenceService {
           include: { contributions: { where: { status: ContributionValidationStatus.VERIFIED } } },
         },
         verifiedExperiences: {
+          where: activeCertificateWhere,
           include: { skills: true, application: { include: { evaluation: true } } },
         },
       },
@@ -456,7 +458,7 @@ export class TalentIntelligenceService {
             },
             skillEvidence: { include: { skill: true }, orderBy: { totalScore: 'desc' } },
             verifiedExperiences: {
-              where: { public: true },
+              where: { public: true, ...activeCertificateWhere },
               include: { skills: { include: { skill: true } }, certificate: true },
             },
           },

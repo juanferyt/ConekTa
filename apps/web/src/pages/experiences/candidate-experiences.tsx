@@ -249,13 +249,21 @@ export function CandidateExperiencesPage() {
                       <p className="text-sm text-slate-500">
                         {item.companyName} · {item.durationWeeks} semanas
                       </p>
+                      <p className="mt-2 text-xs text-slate-500">
+                        {item.public
+                          ? 'Verificación pública: incluye tu nombre, entrega, enlaces y calificaciones.'
+                          : 'Privada: activa la verificación pública para compartir el certificado, tu entrega y sus calificaciones.'}
+                      </p>
                       <div className="mt-3 flex flex-wrap gap-2">
                         {item.skills.map(({ skill }) => (
                           <span
                             className="rounded-full bg-emerald-50 px-3 py-1 text-xs text-emerald-700"
                             key={skill.id}
                           >
-                            {skill.name} verificada
+                            {skill.name}{' '}
+                            {item.certificate?.status === 'ACTIVE' && item.certificate.payloadHash
+                              ? 'verificada'
+                              : '(sin respaldo vigente)'}
                           </span>
                         ))}
                       </div>
@@ -273,7 +281,9 @@ export function CandidateExperiencesPage() {
                         variant="outline"
                         onClick={() => visibility.mutate({ id: item.id, isPublic: !item.public })}
                       >
-                        {item.public ? 'Ocultar del perfil' : 'Mostrar en el perfil'}
+                        {item.public
+                          ? 'Ocultar perfil y verificación pública'
+                          : 'Hacer pública la experiencia y su evidencia'}
                       </Button>
                     </Panel>
                   ))}

@@ -90,6 +90,7 @@ export function App() {
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="/verify/:certificateCode" element={<VerifyCertificatePage />} />
+        <Route path="/verify" element={<VerifyCertificatePage />} />
         <Route path="/passport/:code" element={<PublicPassportPage />} />
         <Route path="/validate-contribution/:token" element={<ContributionValidationPage />} />
         <Route path="/register" element={<RegisterPage />} />

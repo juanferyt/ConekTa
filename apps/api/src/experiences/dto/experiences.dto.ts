@@ -54,11 +54,11 @@ export class ExperienceStatusDto {
 
 export class ExperienceSubmissionDto {
   @IsString() @Length(30, 5000) workDescription!: string;
-  @IsUrl({ require_protocol: true }) projectUrl!: string;
-  @IsOptional() @IsUrl({ require_protocol: true }) githubUrl?: string;
+  @IsUrl({ require_protocol: true, protocols: ['http', 'https'] }) projectUrl!: string;
+  @IsOptional() @IsUrl({ require_protocol: true, protocols: ['http', 'https'] }) githubUrl?: string;
   @IsArray()
   @ArrayMaxSize(10)
-  @IsUrl({ require_protocol: true }, { each: true })
+  @IsUrl({ require_protocol: true, protocols: ['http', 'https'] }, { each: true })
   additionalLinks!: string[];
   @IsOptional() @IsString() @Length(0, 2000) comments?: string;
 }

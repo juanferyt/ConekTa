@@ -26,7 +26,10 @@ import type {
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService, private readonly storage: StorageService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storage: StorageService,
+  ) {}
   async dashboard() {
     const [
       users,
@@ -227,7 +230,10 @@ export class AdminService {
     if (!request) throw new NotFoundException('Solicitud no encontrada');
     if (!['APPROVED', 'REJECTED', 'COMPLETED'].includes(status))
       throw new BadRequestException('Estado administrativo no válido');
-    const deletedFiles = status === DeletionRequestStatus.COMPLETED ? await this.storage.deleteUserFiles(request.userId) : 0;
+    const deletedFiles =
+      status === DeletionRequestStatus.COMPLETED
+        ? await this.storage.deleteUserFiles(request.userId)
+        : 0;
     return this.prisma.$transaction(async (tx) => {
       if (status === DeletionRequestStatus.COMPLETED) {
         const anonymousEmail = `deleted+${request.userId}@anon.conekta.local`;
@@ -272,7 +278,16 @@ export class AdminService {
           completedAt: status === DeletionRequestStatus.COMPLETED ? new Date() : null,
         },
       });
-      await this.audit(tx, adminId, status === DeletionRequestStatus.COMPLETED ? 'ACCOUNT_ANONYMIZED' : 'DELETION_REQUEST_REVIEWED', 'AccountDeletionRequest', id, { status, deletedFiles });
+      await this.audit(
+        tx,
+        adminId,
+        status === DeletionRequestStatus.COMPLETED
+          ? 'ACCOUNT_ANONYMIZED'
+          : 'DELETION_REQUEST_REVIEWED',
+        'AccountDeletionRequest',
+        id,
+        { status, deletedFiles },
+      );
       return result;
     });
   }
@@ -428,9 +443,18 @@ export class AdminService {
   }
   async revokeExperienceCertificate(adminId: string, id: string) {
     return this.prisma.$transaction(async (tx) => {
+      const current = await tx.experienceCertificate.findUnique({
+        where: { id },
+        include: { verifiedExperience: { select: { candidateId: true } } },
+      });
+      if (!current) throw new NotFoundException('Certificado no encontrado');
+      if (current.status === 'REVOKED') return current;
       const certificate = await tx.experienceCertificate.update({
         where: { id },
         data: { status: 'REVOKED', revokedAt: new Date(), revokedById: adminId },
+      });
+      await tx.skillEvidence.deleteMany({
+        where: { candidateId: current.verifiedExperience.candidateId },
       });
       await this.audit(tx, adminId, 'EXPERIENCE_CERTIFICATE_REVOKED', 'ExperienceCertificate', id, {
         code: certificate.code,

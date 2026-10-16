@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { VacancyStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { calculateMatch, DEFAULT_MATCHING_WEIGHTS } from './matching.engine';
+import { activeCertificateWhere } from '../experiences/certificate-evidence';
 
 @Injectable()
 export class MatchingService {
@@ -52,7 +53,7 @@ export class MatchingService {
         skills: { include: { skill: true } },
         educations: true,
         projects: true,
-        verifiedExperiences: { include: { skills: true } },
+        verifiedExperiences: { where: activeCertificateWhere, include: { skills: true } },
       },
     });
     if (!candidate) throw new NotFoundException('Perfil de candidato no encontrado');

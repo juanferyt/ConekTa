@@ -11,6 +11,7 @@ import { apiFetch } from '@/lib/api-client';
 import type { CatalogSkill } from '../candidate/candidate-types';
 import { CompanyHeading, CompanyPanel, CompanyQueryState } from '../company/company-page';
 import type { ExperienceApplication, ExperienceOpportunity } from './experience-types';
+import { evaluationCriteria, ratingLabels, type EvaluationCriterion } from './evaluation-criteria';
 
 const schema = z.object({
   title: z.string().min(5),
@@ -110,6 +111,16 @@ export function CompanyExperiencesPage() {
         title="Experiencias y retos"
         description="Publica proyectos reales y valida el potencial del talento joven."
       />
+      {action.isError && (
+        <p role="alert" className="mb-4 rounded-lg bg-red-50 p-3 text-red-700">
+          {action.error.message}
+        </p>
+      )}
+      {action.isSuccess && (
+        <p role="status" className="mb-4 rounded-lg bg-emerald-50 p-3 text-emerald-700">
+          Cambio guardado correctamente.
+        </p>
+      )}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {metrics.data && (
           <>
@@ -255,6 +266,7 @@ export function CompanyExperiencesPage() {
                     app={app}
                     skills={item.skills.map((s) => s.skill)}
                     action={action.mutate}
+                    pending={action.isPending}
                   />
                 ))}
                 {!item.applications?.length && (
@@ -279,15 +291,20 @@ function Applicant({
   app,
   skills,
   action,
+  pending,
 }: {
   app: ExperienceApplication;
   skills: CatalogSkill[];
   action: (value: { path: string; method?: string; body?: unknown }) => void;
+  pending: boolean;
 }) {
   const [evaluating, setEvaluating] = useState(false);
   const [verified, setVerified] = useState<string[]>([]);
   const [comment, setComment] = useState('');
-  const score = 4;
+  const [scores, setScores] = useState<Partial<Record<EvaluationCriterion, number>>>({});
+  const validScores = evaluationCriteria.every(
+    ([key]) => Number.isInteger(scores[key]) && scores[key]! >= 1 && scores[key]! <= 5,
+  );
   return (
     <div className="rounded-xl border p-4">
       <div className="flex flex-wrap justify-between gap-3">
@@ -345,9 +362,23 @@ function Applicant({
             Iniciar experiencia
           </Button>
         )}
-        {app.status === 'SUBMITTED' && !app.evaluation && (
-          <Button size="sm" onClick={() => setEvaluating(true)}>
-            Evaluar entrega
+        {app.status === 'SUBMITTED' && (
+          <Button
+            size="sm"
+            onClick={() => {
+              setScores(
+                app.evaluation
+                  ? Object.fromEntries(
+                      evaluationCriteria.map(([key]) => [key, app.evaluation![key]]),
+                    )
+                  : {},
+              );
+              setComment(app.evaluation?.companyComment ?? '');
+              setVerified(app.evaluation?.verifiedSkillIds ?? []);
+              setEvaluating(true);
+            }}
+          >
+            {app.evaluation ? 'Revisar evaluación' : 'Evaluar entrega'}
           </Button>
         )}
         {app.status === 'SUBMITTED' && app.evaluation && (
@@ -372,8 +403,56 @@ function Applicant({
           </a>
         </div>
       )}
-      {evaluating && (
+      {app.evaluation && !evaluating && (
+        <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
+          {evaluationCriteria.map(([key, label]) => (
+            <div key={key}>
+              <dt className="text-slate-500">{label}</dt>
+              <dd>{app.evaluation![key]} / 5</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {app.verifiedExperience?.certificate && (
+        <a
+          className="text-primary mt-4 block underline"
+          href={`/verify/${app.verifiedExperience.certificate.code}`}
+        >
+          Consultar certificado y estado actual
+        </a>
+      )}
+      {evaluating && app.status === 'SUBMITTED' && (
         <div className="mt-4 border-t pt-4">
+          <p className="mb-4 text-sm text-slate-600">
+            Califica cada criterio según la entrega revisada. Selecciona únicamente las competencias
+            que hayas podido comprobar. La emisión requiere una empresa verificada por
+            administración.
+          </p>
+          <div className="mb-5 grid gap-4 sm:grid-cols-2">
+            {evaluationCriteria.map(([key, label]) => (
+              <label key={key} className="text-sm font-medium">
+                {label}
+                <select
+                  required
+                  className="mt-1 block w-full rounded-lg border bg-white p-2"
+                  value={scores[key] ?? ''}
+                  onChange={(event) =>
+                    setScores((current) => ({
+                      ...current,
+                      [key]: event.target.value ? Number(event.target.value) : undefined,
+                    }))
+                  }
+                >
+                  <option value="">Selecciona una calificación</option>
+                  {ratingLabels.map((text, index) => (
+                    <option key={index} value={index + 1}>
+                      {text}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
           <p className="mb-2 text-sm font-semibold">Competencias verificadas</p>
           <div className="flex flex-wrap gap-3">
             {skills.map((skill) => (
@@ -402,25 +481,24 @@ function Applicant({
           />
           <Button
             className="mt-3"
-            disabled={comment.length < 10}
+            disabled={
+              pending || !validScores || comment.trim().length < 10 || comment.length > 2000
+            }
             onClick={() =>
               action({
                 path: `/experiences/company/applications/${app.id}/evaluation`,
                 body: {
-                  compliance: score,
-                  quality: score,
-                  responsibility: score,
-                  communication: score,
-                  teamwork: score,
-                  technicalSkills: score,
-                  finalResult: score,
-                  companyComment: comment,
+                  ...scores,
+                  companyComment: comment.trim(),
                   verifiedSkillIds: verified,
                 },
               })
             }
           >
-            Guardar evaluación (4/5)
+            Guardar evaluación
+          </Button>
+          <Button className="ml-2" variant="outline" onClick={() => setEvaluating(false)}>
+            Cerrar evaluación
           </Button>
         </div>
       )}

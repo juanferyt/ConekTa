@@ -76,7 +76,13 @@ export interface VerifiedExperience {
   durationWeeks: number;
   public: boolean;
   skills: { skill: CatalogSkill }[];
-  certificate?: { id: string; code: string; status: 'ACTIVE' | 'REVOKED'; issuedAt: string };
+  certificate?: {
+    id: string;
+    code: string;
+    status: 'ACTIVE' | 'REVOKED';
+    issuedAt: string;
+    payloadHash?: string | null;
+  };
 }
 export interface CandidateExperiences {
   applications: ExperienceApplication[];

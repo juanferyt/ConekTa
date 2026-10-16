@@ -367,6 +367,8 @@ Nginx o el balanceador debe permitir upgrade WebSocket en `/realtime`. Cámara, 
 
 ## ConekTa Experiencia
 
+La [experiencia verificable](docs/academico/experiencia-verificable.md) incluye evaluación individual de siete criterios, emisor empresarial verificado, copia fija de evidencia, comprobación de integridad, auditoría y revocación. Los certificados nuevos son privados hasta que el candidato habilita su consulta pública en `/verify`.
+
 “Construye experiencia mientras llega tu primera oportunidad.” Este módulo permite que una empresa publique retos y proyectos reales y que un candidato convierta una entrega evaluada en experiencia práctica verificable. No se presenta como relación laboral contractual ni como certificación laboral.
 
 Flujo protegido:

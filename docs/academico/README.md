@@ -10,6 +10,7 @@ Este expediente describe un prototipo académico. No acredita efectividad en con
 4. [Evaluación con usuarios](evaluacion-usuarios.md): protocolo listo para aplicar.
 5. [Registro de sesiones](registro-sesiones.csv): plantilla vacía; no contiene resultados simulados.
 6. [Verificación técnica](verificacion.md): resultados observados y pendientes.
+7. [Experiencia verificable](experiencia-verificable.md): evidencia emitida, evaluación, consulta pública, privacidad y revocación.
 
 Los objetivos y requisitos son una propuesta reconstruida desde el software existente. Deben contrastarse con la rúbrica de la asignatura. No se atribuyen entrevistas, encuestas ni decisiones históricas que no estén documentadas.
 

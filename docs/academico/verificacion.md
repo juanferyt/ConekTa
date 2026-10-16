@@ -1,5 +1,18 @@
 # Verificación técnica
 
+## Actualización: experiencia verificable, 16 de octubre de 2026
+
+- 29 pruebas unitarias aprobadas, 7 suites, sin fallos.
+- Flujo integral ampliado aprobado en PostgreSQL 18; 15 migraciones aplicadas desde cero en `academic_test_1792136765423_1f0bde`.
+- Comprobados: calificaciones diferenciadas, restricciones de emisión, reevaluación tras corrección, copia fija, integridad, privacidad por defecto, publicación explícita, revocación y retirada de respaldo en matching/evidencia/pasaporte.
+- Comprobación Chromium aprobada mediante `scripts/check-experience-ui.cjs`, con respuestas API controladas: siete campos obligatorios sin valores iniciales, envío independiente de notas, búsqueda, enlaces, revocación, privacidad y error de conexión. No sustituye un piloto humano ni una prueba del navegador contra todos los servicios reales.
+- Typecheck, lint y compilación de API/web aprobados.
+- Migración aplicada también a la base local `conekta_demo`; aplicación reiniciada en web 5174 y API 3001. No se publicaron estos cambios en GitHub durante esta revisión.
+
+Detalles y límites en [Experiencia verificable](experiencia-verificable.md).
+
+## Registro anterior
+
 Fecha: 15 de octubre de 2026. Entorno: Windows, Node.js 22.22.0 y PostgreSQL 18 local temporal. Se utilizó el código de este workspace, sin atribuir un identificador de commit.
 
 ## Resultados observados

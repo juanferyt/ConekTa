@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
+import { activeCertificateWhere, evidenceHash, submissionEvidence } from './certificate-evidence';
 import { ExperienceApplicationStatus, ExperienceOpportunityStatus, Prisma } from '@prisma/client';
 import { calculateMatch, DEFAULT_MATCHING_WEIGHTS } from '../matching/matching.engine';
 import { PrismaService } from '../prisma/prisma.service';
@@ -223,7 +224,9 @@ export class ExperiencesService {
       }),
     ]);
     const skillIds = new Set(
-      verifiedExperiences.flatMap((item) => item.skills.map(({ skillId }) => skillId)),
+      verifiedExperiences
+        .filter((item) => item.certificate?.status === 'ACTIVE' && item.certificate.payloadHash)
+        .flatMap((item) => item.skills.map(({ skillId }) => skillId)),
     );
     return {
       applications,
@@ -231,7 +234,9 @@ export class ExperiencesService {
       stats: {
         completed: verifiedExperiences.length,
         verifiedSkills: skillIds.size,
-        certificates: verifiedExperiences.filter(({ certificate }) => certificate).length,
+        certificates: verifiedExperiences.filter(
+          ({ certificate }) => certificate?.status === 'ACTIVE' && certificate.payloadHash,
+        ).length,
         durationWeeks: verifiedExperiences.reduce((sum, item) => sum + item.durationWeeks, 0),
       },
     };
@@ -262,29 +267,33 @@ export class ExperiencesService {
   }
 
   async applicationStatus(userId: string, id: string, status: ExperienceApplicationStatus) {
-    const application = await this.companyApplication(userId, id);
-    const allowed: Partial<Record<ExperienceApplicationStatus, ExperienceApplicationStatus[]>> = {
-      APPLIED: [ExperienceApplicationStatus.ACCEPTED, ExperienceApplicationStatus.REJECTED],
-      ACCEPTED: [ExperienceApplicationStatus.IN_PROGRESS, ExperienceApplicationStatus.CANCELLED],
-      IN_PROGRESS: [ExperienceApplicationStatus.CANCELLED],
-      SUBMITTED: [ExperienceApplicationStatus.IN_PROGRESS],
-    };
-    if (!allowed[application.status]?.includes(status))
-      throw new BadRequestException('Cambio de estado no permitido');
-    if (status === ExperienceApplicationStatus.ACCEPTED) {
-      const participating = new Set<ExperienceApplicationStatus>([
-        ExperienceApplicationStatus.ACCEPTED,
-        ExperienceApplicationStatus.IN_PROGRESS,
-        ExperienceApplicationStatus.SUBMITTED,
-        ExperienceApplicationStatus.COMPLETED,
-      ]);
-      const accepted = application.experience.applications.filter((item) =>
-        participating.has(item.status),
-      ).length;
-      if (accepted >= application.experience.participantLimit)
-        throw new BadRequestException('Ya se alcanzó el límite de participantes');
-    }
     return this.prisma.$transaction(async (tx) => {
+      await this.lockApplication(tx, id);
+      const application = await this.companyApplication(userId, id, tx);
+      const allowed: Partial<Record<ExperienceApplicationStatus, ExperienceApplicationStatus[]>> = {
+        APPLIED: [ExperienceApplicationStatus.ACCEPTED, ExperienceApplicationStatus.REJECTED],
+        ACCEPTED: [ExperienceApplicationStatus.IN_PROGRESS, ExperienceApplicationStatus.CANCELLED],
+        IN_PROGRESS: [ExperienceApplicationStatus.CANCELLED],
+        SUBMITTED: [ExperienceApplicationStatus.IN_PROGRESS],
+      };
+      if (!allowed[application.status]?.includes(status))
+        throw new BadRequestException('Cambio de estado no permitido');
+      if (status === ExperienceApplicationStatus.ACCEPTED) {
+        const participating = new Set<ExperienceApplicationStatus>([
+          ExperienceApplicationStatus.ACCEPTED,
+          ExperienceApplicationStatus.IN_PROGRESS,
+          ExperienceApplicationStatus.SUBMITTED,
+          ExperienceApplicationStatus.COMPLETED,
+        ]);
+        const accepted = application.experience.applications.filter((item) =>
+          participating.has(item.status),
+        ).length;
+        if (accepted >= application.experience.participantLimit)
+          throw new BadRequestException('Ya se alcanzó el límite de participantes');
+      }
+      if (application.status === ExperienceApplicationStatus.SUBMITTED) {
+        await tx.experienceEvaluation.deleteMany({ where: { applicationId: id } });
+      }
       const updated = await tx.experienceApplication.update({
         where: { id },
         data: {
@@ -312,17 +321,19 @@ export class ExperiencesService {
 
   async submit(userId: string, id: string, dto: ExperienceSubmissionDto) {
     const candidate = await this.candidate(userId);
-    const application = await this.prisma.experienceApplication.findFirst({
-      where: { id, candidateId: candidate.id },
-      include: { submission: true },
-    });
-    if (!application) throw new NotFoundException('Postulación no encontrada');
-    if (
-      application.status !== ExperienceApplicationStatus.ACCEPTED &&
-      application.status !== ExperienceApplicationStatus.IN_PROGRESS
-    )
-      throw new BadRequestException('Esta experiencia no admite una entrega');
     return this.prisma.$transaction(async (tx) => {
+      await this.lockApplication(tx, id);
+      const application = await tx.experienceApplication.findFirst({
+        where: { id, candidateId: candidate.id },
+        include: { submission: true },
+      });
+      if (!application) throw new NotFoundException('Postulación no encontrada');
+      if (
+        application.status !== ExperienceApplicationStatus.ACCEPTED &&
+        application.status !== ExperienceApplicationStatus.IN_PROGRESS
+      )
+        throw new BadRequestException('Esta experiencia no admite una entrega');
+      await tx.experienceEvaluation.deleteMany({ where: { applicationId: id } });
       const submission = await tx.experienceSubmission.upsert({
         where: { applicationId: id },
         create: { ...dto, applicationId: id },
@@ -337,16 +348,34 @@ export class ExperiencesService {
   }
 
   async evaluate(userId: string, id: string, dto: ExperienceEvaluationDto) {
-    const application = await this.companyApplication(userId, id);
-    if (application.status !== ExperienceApplicationStatus.SUBMITTED || !application.submission)
-      throw new BadRequestException('Debe existir una entrega pendiente de revisión');
-    const allowedIds = new Set(application.experience.skills.map(({ skillId }) => skillId));
-    if (dto.verifiedSkillIds.some((skillId) => !allowedIds.has(skillId)))
-      throw new ForbiddenException('Solo puedes validar habilidades asociadas a la experiencia');
-    return this.prisma.experienceEvaluation.upsert({
-      where: { applicationId: id },
-      create: { ...dto, applicationId: id },
-      update: dto,
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockApplication(tx, id);
+      const application = await this.companyApplication(userId, id, tx);
+      if (application.status !== ExperienceApplicationStatus.SUBMITTED || !application.submission)
+        throw new BadRequestException('Debe existir una entrega pendiente de revisión');
+      const allowedIds = new Set(application.experience.skills.map(({ skillId }) => skillId));
+      if (dto.verifiedSkillIds.some((skillId) => !allowedIds.has(skillId)))
+        throw new ForbiddenException('Solo puedes validar habilidades asociadas a la experiencia');
+      const attribution = {
+        evaluatedById: userId,
+        evaluatedAt: new Date(),
+        submissionHash: evidenceHash(submissionEvidence(application.submission)),
+      };
+      const evaluation = await tx.experienceEvaluation.upsert({
+        where: { applicationId: id },
+        create: { ...dto, ...attribution, applicationId: id },
+        update: { ...dto, ...attribution },
+      });
+      await tx.auditLog.create({
+        data: {
+          userId,
+          action: 'EXPERIENCE_EVALUATED',
+          entity: 'ExperienceApplication',
+          entityId: id,
+          data: { submissionHash: attribution.submissionHash, evaluationId: evaluation.id },
+        },
+      });
+      return evaluation;
     });
   }
 
@@ -361,19 +390,83 @@ export class ExperiencesService {
   }
 
   async complete(userId: string, id: string) {
-    const application = await this.companyApplication(userId, id);
-    if (
-      application.status !== ExperienceApplicationStatus.SUBMITTED ||
-      !application.submission ||
-      !application.evaluation
-    )
-      throw new BadRequestException(
-        'La entrega y la evaluación son obligatorias antes de completar',
-      );
-    const completedAt = new Date();
-    const startsAt =
-      application.experience.startsAt ?? application.acceptedAt ?? application.createdAt;
     return this.prisma.$transaction(async (tx) => {
+      await this.lockApplication(tx, id);
+      const application = await this.companyApplication(userId, id, tx);
+      if (
+        application.status !== ExperienceApplicationStatus.SUBMITTED ||
+        !application.submission ||
+        !application.evaluation
+      )
+        throw new BadRequestException(
+          'La entrega y la evaluación son obligatorias antes de completar',
+        );
+      if (application.experience.company.verificationStatus !== 'VERIFIED')
+        throw new ForbiddenException(
+          'La empresa debe estar verificada por administración antes de emitir certificados',
+        );
+      if (
+        !application.candidate.firstName?.trim() ||
+        !application.candidate.lastName?.trim() ||
+        !application.experience.company.name?.trim()
+      )
+        throw new BadRequestException(
+          'Completa el nombre del candidato y la empresa antes de emitir',
+        );
+      const evaluation = application.evaluation;
+      const submission = application.submission;
+      if (
+        !evaluation.evaluatedById ||
+        !evaluation.evaluatedAt ||
+        evaluation.submissionHash !== evidenceHash(submissionEvidence(submission))
+      )
+        throw new BadRequestException(
+          'Evalúa nuevamente la versión actual de la entrega antes de emitir',
+        );
+      const completedAt = new Date();
+      const startsAt = application.acceptedAt ?? application.createdAt;
+      const code = this.certificateCode();
+      const snapshot = {
+        version: 1,
+        code,
+        issuedAt: completedAt.toISOString(),
+        candidate:
+          `${application.candidate.firstName ?? ''} ${application.candidate.lastName ?? ''}`.trim(),
+        company: application.experience.company.name ?? 'Organización ConekTa',
+        issuer: {
+          companyId: application.experience.companyId,
+          evaluatedById: evaluation.evaluatedById,
+          issuedById: userId,
+          verifiedAtIssue: true,
+        },
+        project: application.experience.title,
+        description: application.experience.objective,
+        professionalArea: application.experience.professionalArea,
+        startsAt: startsAt.toISOString(),
+        completedAt: completedAt.toISOString(),
+        durationWeeks: application.experience.estimatedDurationWeeks,
+        skills: application.experience.skills
+          .filter(({ skillId }) => evaluation.verifiedSkillIds.includes(skillId))
+          .map(({ skill }) => ({ id: skill.id, name: skill.name, type: skill.type })),
+        evaluation: {
+          compliance: evaluation.compliance,
+          quality: evaluation.quality,
+          responsibility: evaluation.responsibility,
+          communication: evaluation.communication,
+          teamwork: evaluation.teamwork,
+          technicalSkills: evaluation.technicalSkills,
+          finalResult: evaluation.finalResult,
+        },
+        evaluatedAt: evaluation.evaluatedAt.toISOString(),
+        evidence: {
+          workDescription: submission.workDescription,
+          projectUrl: submission.projectUrl,
+          githubUrl: submission.githubUrl,
+          additionalLinks: submission.additionalLinks,
+          submittedAt: submission.updatedAt.toISOString(),
+          submissionHash: evaluation.submissionHash,
+        },
+      };
       const verified = await tx.verifiedExperience.create({
         data: {
           applicationId: id,
@@ -384,13 +477,29 @@ export class ExperiencesService {
           startsAt,
           completedAt,
           durationWeeks: application.experience.estimatedDurationWeeks,
+          public: false,
           skills: {
-            create: application.evaluation!.verifiedSkillIds.map((skillId) => ({ skillId })),
+            create: application.evaluation.verifiedSkillIds.map((skillId) => ({ skillId })),
           },
         },
       });
       const certificate = await tx.experienceCertificate.create({
-        data: { verifiedExperienceId: verified.id, code: this.certificateCode() },
+        data: {
+          verifiedExperienceId: verified.id,
+          code,
+          issuedAt: completedAt,
+          snapshot,
+          payloadHash: evidenceHash(snapshot),
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          userId,
+          action: 'EXPERIENCE_CERTIFICATE_ISSUED',
+          entity: 'ExperienceCertificate',
+          entityId: certificate.id,
+          data: { code, payloadHash: certificate.payloadHash, applicationId: id },
+        },
       });
       await tx.experienceApplication.update({
         where: { id },
@@ -431,48 +540,27 @@ export class ExperiencesService {
       throw new NotFoundException('Certificado no encontrado');
     const certificate = await this.prisma.experienceCertificate.findUnique({
       where: { code },
-      include: {
-        verifiedExperience: {
-          include: {
-            skills: { include: { skill: { select: { name: true, type: true } } } },
-            application: {
-              include: {
-                candidate: { select: { firstName: true, lastName: true } },
-                evaluation: {
-                  select: {
-                    compliance: true,
-                    quality: true,
-                    responsibility: true,
-                    communication: true,
-                    teamwork: true,
-                    technicalSkills: true,
-                    finalResult: true,
-                  },
-                },
-                experience: { select: { professionalArea: true } },
-              },
-            },
-          },
-        },
-      },
+      include: { verifiedExperience: { select: { public: true } } },
     });
-    if (!certificate) throw new NotFoundException('Certificado no encontrado');
-    const { verifiedExperience } = certificate;
-    return {
+    if (!certificate || !certificate.verifiedExperience.public)
+      throw new NotFoundException('Certificado no encontrado o no público');
+    const metadata = {
       code: certificate.code,
       status: certificate.status,
       issuedAt: certificate.issuedAt,
-      candidate:
-        `${verifiedExperience.application.candidate.firstName ?? ''} ${verifiedExperience.application.candidate.lastName ?? ''}`.trim(),
-      company: verifiedExperience.companyName,
-      project: verifiedExperience.title,
-      description: verifiedExperience.summary,
-      startsAt: verifiedExperience.startsAt,
-      completedAt: verifiedExperience.completedAt,
-      durationWeeks: verifiedExperience.durationWeeks,
-      professionalArea: verifiedExperience.application.experience.professionalArea,
-      skills: verifiedExperience.skills.map(({ skill }) => skill),
-      evaluation: verifiedExperience.application.evaluation,
+      revokedAt: certificate.revokedAt,
+      checkedAt: new Date().toISOString(),
+    };
+    if (!certificate.snapshot || !certificate.payloadHash)
+      return { ...metadata, verification: 'LEGACY' as const };
+    if (evidenceHash(certificate.snapshot) !== certificate.payloadHash)
+      return { ...metadata, verification: 'INVALID' as const };
+    return {
+      ...(certificate.snapshot as Prisma.JsonObject),
+      ...metadata,
+      verification: 'VALID' as const,
+      payloadHash: certificate.payloadHash,
+      snapshot: certificate.snapshot,
     };
   }
 
@@ -488,15 +576,19 @@ export class ExperiencesService {
         skills: { include: { skill: true } },
         educations: true,
         projects: true,
-        verifiedExperiences: { include: { skills: true } },
+        verifiedExperiences: { where: activeCertificateWhere, include: { skills: true } },
       },
     });
     if (!candidate) throw new NotFoundException('Perfil de candidato no encontrado');
     return candidate;
   }
-  private async companyApplication(userId: string, id: string) {
+  private async companyApplication(
+    userId: string,
+    id: string,
+    client: Prisma.TransactionClient = this.prisma,
+  ) {
     const company = await this.company(userId);
-    const item = await this.prisma.experienceApplication.findFirst({
+    const item = await client.experienceApplication.findFirst({
       where: { id, experience: { companyId: company.id } },
       include: {
         candidate: true,
@@ -513,6 +605,9 @@ export class ExperiencesService {
     });
     if (!item) throw new NotFoundException('Postulación no encontrada');
     return item;
+  }
+  private async lockApplication(tx: Prisma.TransactionClient, id: string) {
+    await tx.$queryRaw`SELECT id FROM experience_applications WHERE id = ${id} FOR UPDATE`;
   }
   private match(
     candidate: Awaited<ReturnType<ExperiencesService['candidate']>>,

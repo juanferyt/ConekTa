@@ -8,6 +8,7 @@ import { AppModule } from '../src/app.module';
 import { PasswordService } from '../src/auth/password.service';
 import { io, type Socket } from 'socket.io-client';
 import { createHash } from 'node:crypto';
+import { evidenceHash } from '../src/experiences/certificate-evidence';
 
 interface Session {
   accessToken: string;
@@ -102,7 +103,10 @@ void describe('flujo esencial ConekTa', () => {
       email: emails[0],
       password,
       role: 'CANDIDATE',
-      termsAccepted: true, privacyAccepted: true, majorityAgeConfirmed: true, marketingConsent: false,
+      termsAccepted: true,
+      privacyAccepted: true,
+      majorityAgeConfirmed: true,
+      marketingConsent: false,
     });
     assert.equal(candidateRegistration.status, 201);
     const candidateLogin = await post<Session>('/auth/login', { email: emails[0], password });
@@ -176,7 +180,10 @@ void describe('flujo esencial ConekTa', () => {
       email: emails[1],
       password,
       role: 'COMPANY',
-      termsAccepted: true, privacyAccepted: true, majorityAgeConfirmed: true, marketingConsent: false,
+      termsAccepted: true,
+      privacyAccepted: true,
+      majorityAgeConfirmed: true,
+      marketingConsent: false,
     });
     assert.equal(companyRegistration.status, 201);
     const companyLogin = await post<Session>('/auth/login', { email: emails[1], password });
@@ -353,13 +360,29 @@ void describe('flujo esencial ConekTa', () => {
       candidateToken,
     );
     assert.ok(candidateNotifications.body.some((item) => item.type === 'INTERVIEW'));
-    const selected = await patch<{ status: string }>(`/company/applications/${application.body.id}/status`, { status: 'SELECTED' }, companyToken);
+    const selected = await patch<{ status: string }>(
+      `/company/applications/${application.body.id}/status`,
+      { status: 'SELECTED' },
+      companyToken,
+    );
     assert.equal(selected.body.status, 'SELECTED');
-    const offered = await post<{ status: string }>(`/company/applications/${application.body.id}/offer`, { salary: 2500000, currency: 'COP', startDate: '2026-10-01', notes: 'Oferta E2E' }, companyToken);
+    const offered = await post<{ status: string }>(
+      `/company/applications/${application.body.id}/offer`,
+      { salary: 2500000, currency: 'COP', startDate: '2026-10-01', notes: 'Oferta E2E' },
+      companyToken,
+    );
     assert.equal(offered.body.status, 'OFFER_SENT');
-    const accepted = await patch<unknown[]>(`/candidate/applications/${application.body.id}/offer-response`, { status: 'OFFER_ACCEPTED' }, candidateToken);
+    const accepted = await patch<unknown[]>(
+      `/candidate/applications/${application.body.id}/offer-response`,
+      { status: 'OFFER_ACCEPTED' },
+      candidateToken,
+    );
     assert.equal(accepted.status, 200);
-    const hired = await patch<{ status: string }>(`/company/applications/${application.body.id}/status`, { status: 'HIRED' }, companyToken);
+    const hired = await patch<{ status: string }>(
+      `/company/applications/${application.body.id}/status`,
+      { status: 'HIRED' },
+      companyToken,
+    );
     assert.equal(hired.body.status, 'HIRED');
     const candidateApplications = await request<{ id: string; status: string }[]>(
       '/candidate/applications',
@@ -374,7 +397,10 @@ void describe('flujo esencial ConekTa', () => {
       email: emails[2],
       password,
       role: 'COMPANY',
-      termsAccepted: true, privacyAccepted: true, majorityAgeConfirmed: true, marketingConsent: false,
+      termsAccepted: true,
+      privacyAccepted: true,
+      majorityAgeConfirmed: true,
+      marketingConsent: false,
     });
     const foreignUpdate = await patch(
       `/company/vacancies/${vacancy.body.id}`,
@@ -489,27 +515,144 @@ void describe('flujo esencial ConekTa', () => {
       recommendation: 'Recomendado para proyectos frontend.',
       verifiedSkillIds: [skill.body.id],
     };
+    const invalidEvaluation = await post(
+      `/experiences/company/applications/${experienceApplication.body.id}/evaluation`,
+      { ...evaluationBody, quality: 6 },
+      companyToken,
+    );
+    assert.equal(invalidEvaluation.status, 400);
     const evaluation = await post(
       `/experiences/company/applications/${experienceApplication.body.id}/evaluation`,
       evaluationBody,
       companyToken,
     );
     assert.equal(evaluation.status, 201);
-    const completedExperience = await post<{ certificate: { code: string } }>(
+    const unverifiedIssue = await post(
+      `/experiences/company/applications/${experienceApplication.body.id}/complete`,
+      {},
+      companyToken,
+    );
+    assert.equal(unverifiedIssue.status, 403);
+    const companyProfile = await request<{ id: string }>('/company/profile', {}, companyToken);
+    const verifyCompany = await patch(
+      `/admin/companies/${companyProfile.body.id}/verification`,
+      {
+        status: 'VERIFIED',
+        reason: 'Identidad empresarial revisada en escenario académico controlado.',
+      },
+      adminLogin.body.accessToken,
+    );
+    assert.equal(verifyCompany.status, 200);
+    // A returned/resubmitted delivery must be reviewed again.
+    const returned = await patch(
+      `/experiences/company/applications/${experienceApplication.body.id}/status`,
+      { status: 'IN_PROGRESS' },
+      companyToken,
+    );
+    assert.equal(returned.status, 200);
+    const resubmitted = await post(
+      `/experiences/candidate/applications/${experienceApplication.body.id}/submission`,
+      {
+        workDescription: 'Entrega revisada con mejoras y documentación completa para evaluación.',
+        projectUrl: 'https://example.test/dashboard-v2',
+        additionalLinks: [],
+      },
+      candidateToken,
+    );
+    assert.equal(resubmitted.status, 201);
+    const staleIssue = await post(
+      `/experiences/company/applications/${experienceApplication.body.id}/complete`,
+      {},
+      companyToken,
+    );
+    assert.equal(staleIssue.status, 400);
+    const reevaluation = await post(
+      `/experiences/company/applications/${experienceApplication.body.id}/evaluation`,
+      { ...evaluationBody, quality: 3, communication: 2 },
+      companyToken,
+    );
+    assert.equal(reevaluation.status, 201);
+    const completedExperience = await post<{
+      certificate: { id: string; code: string };
+      verifiedExperience: { id: string };
+    }>(
       `/experiences/company/applications/${experienceApplication.body.id}/complete`,
       {},
       companyToken,
     );
     assert.equal(completedExperience.status, 201);
     assert.match(completedExperience.body.certificate.code, /^CNK-EXP-[A-F0-9]{16}$/);
+    assert.equal(
+      (await request(`/verify/${completedExperience.body.certificate.code}`)).status,
+      404,
+    );
+    const publishEvidence = await patch(
+      `/experiences/candidate/verified/${completedExperience.body.verifiedExperience.id}/visibility`,
+      { public: true },
+      candidateToken,
+    );
+    assert.equal(publishEvidence.status, 200);
     const verifiedCertificate = await request<{
       status: string;
       candidate: string;
       skills: Array<{ name: string }>;
+      verification: string;
+      evaluation: { quality: number; communication: number };
+      evidence: { projectUrl: string };
+      snapshot: unknown;
+      payloadHash: string;
     }>(`/verify/${completedExperience.body.certificate.code}`);
     assert.equal(verifiedCertificate.status, 200);
     assert.equal(verifiedCertificate.body.status, 'ACTIVE');
     assert.equal(verifiedCertificate.body.candidate, 'E2E Candidate');
+    assert.equal(verifiedCertificate.body.verification, 'VALID');
+    assert.equal(verifiedCertificate.body.evaluation.quality, 3);
+    assert.equal(verifiedCertificate.body.evaluation.communication, 2);
+    assert.equal(verifiedCertificate.body.evidence.projectUrl, 'https://example.test/dashboard-v2');
+    assert.equal(
+      verifiedCertificate.body.payloadHash,
+      evidenceHash(verifiedCertificate.body.snapshot),
+    );
+    const duplicatedIssue = await post(
+      `/experiences/company/applications/${experienceApplication.body.id}/complete`,
+      {},
+      companyToken,
+    );
+    assert.equal(duplicatedIssue.status, 400);
+    const editAfterIssue = await post(
+      `/experiences/company/applications/${experienceApplication.body.id}/evaluation`,
+      evaluationBody,
+      companyToken,
+    );
+    assert.equal(editAfterIssue.status, 400);
+    await patch('/candidate/profile', { firstName: 'Nombre actualizado' }, candidateToken);
+    const frozen = await request<{ candidate: string; payloadHash: string }>(
+      `/verify/${completedExperience.body.certificate.code}`,
+    );
+    assert.equal(frozen.body.candidate, 'E2E Candidate');
+    assert.equal(frozen.body.payloadHash, verifiedCertificate.body.payloadHash);
+    await patch('/candidate/profile', { firstName: 'E2E' }, candidateToken);
+    await assert.rejects(
+      prisma.experienceCertificate.update({
+        where: { id: completedExperience.body.certificate.id },
+        data: { payloadHash: 'alterado' },
+      }),
+    );
+    const hidden = await patch(
+      `/experiences/candidate/verified/${completedExperience.body.verifiedExperience.id}/visibility`,
+      { public: false },
+      candidateToken,
+    );
+    assert.equal(hidden.status, 200);
+    assert.equal(
+      (await request(`/verify/${completedExperience.body.certificate.code}`)).status,
+      404,
+    );
+    await patch(
+      `/experiences/candidate/verified/${completedExperience.body.verifiedExperience.id}/visibility`,
+      { public: true },
+      candidateToken,
+    );
     assert.ok(verifiedCertificate.body.skills.some((item) => item.name === `React E2E ${stamp}`));
     const completedMine = await request<{
       stats: { completed: number; certificates: number; verifiedSkills: number };
@@ -561,6 +704,55 @@ void describe('flujo esencial ConekTa', () => {
     );
     assert.equal(adminAudit.status, 200);
     assert.equal(adminAudit.body.items[0]?.id, application.body.id);
+    const bonusBefore = await request<{ verifiedEvidenceBonus: number }>(
+      `/candidate/matches/${vacancy.body.id}`,
+      {},
+      candidateToken,
+    );
+    assert.equal(bonusBefore.body.verifiedEvidenceBonus, 1);
+    const forbiddenRevocation = await patch(
+      `/admin/experience-certificates/${completedExperience.body.certificate.id}/revoke`,
+      {},
+      companyToken,
+    );
+    assert.equal(forbiddenRevocation.status, 403);
+    const revoked = await patch(
+      `/admin/experience-certificates/${completedExperience.body.certificate.id}/revoke`,
+      {},
+      adminLogin.body.accessToken,
+    );
+    assert.equal(revoked.status, 200);
+    const revokedPublic = await request<{ status: string; revokedAt: string }>(
+      `/verify/${completedExperience.body.certificate.code}`,
+    );
+    assert.equal(revokedPublic.body.status, 'REVOKED');
+    assert.ok(revokedPublic.body.revokedAt);
+    const bonusAfter = await request<{ verifiedEvidenceBonus: number }>(
+      `/candidate/matches/${vacancy.body.id}`,
+      {},
+      candidateToken,
+    );
+    assert.equal(bonusAfter.body.verifiedEvidenceBonus, 0);
+    const afterRevocation = await request<Array<{ skillId: string; verifiedCount: number }>>(
+      '/talent/candidate/evidence',
+      {},
+      candidateToken,
+    );
+    assert.equal(
+      afterRevocation.body.find((item) => item.skillId === skill.body.id)?.verifiedCount,
+      0,
+    );
+    const passportAfter = await request<{ verifiedExperiences: unknown[] }>(
+      `/passport/${passport.body.passport.publicCode}`,
+    );
+    assert.equal(passportAfter.body.verifiedExperiences.length, 0);
+    const issueAudit = await prisma.auditLog.count({
+      where: {
+        entityId: completedExperience.body.certificate.id,
+        action: 'EXPERIENCE_CERTIFICATE_ISSUED',
+      },
+    });
+    assert.equal(issueAudit, 1);
     await prisma.user.update({ where: { email: emails[0] }, data: { active: false } });
     const inactive = await request('/auth/me', {}, candidateToken);
     assert.equal(inactive.status, 401);

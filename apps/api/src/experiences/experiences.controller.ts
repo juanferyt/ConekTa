@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   HttpStatus,
   Param,
@@ -136,7 +137,9 @@ export class PublicExperiencesController {
   @Get('experience-opportunities/:id') detail(@Param('id') id: string) {
     return this.service.publicDetail(id);
   }
-  @Get('verify/:certificateCode') verify(@Param('certificateCode') code: string) {
-    return this.service.verify(code);
+  @Get('verify/:certificateCode') @Header('Cache-Control', 'no-store') verify(
+    @Param('certificateCode') code: string,
+  ) {
+    return this.service.verify(code.trim().toUpperCase());
   }
 }

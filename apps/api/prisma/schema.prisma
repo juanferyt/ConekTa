@@ -666,6 +666,9 @@ model ExperienceEvaluation {
   companyComment   String
   recommendation   String?
   verifiedSkillIds String[]              @default([])
+  evaluatedById    String?
+  evaluatedAt      DateTime?
+  submissionHash   String?
   createdAt        DateTime              @default(now())
   application      ExperienceApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
@@ -682,7 +685,7 @@ model VerifiedExperience {
   startsAt       DateTime
   completedAt    DateTime
   durationWeeks  Int
-  public         Boolean               @default(true)
+  public         Boolean               @default(false)
   createdAt      DateTime              @default(now())
   application    ExperienceApplication @relation(fields: [applicationId], references: [id], onDelete: Restrict)
   candidate      CandidateProfile      @relation(fields: [candidateId], references: [id], onDelete: Cascade)
@@ -712,6 +715,8 @@ model ExperienceCertificate {
   issuedAt             DateTime                    @default(now())
   revokedAt            DateTime?
   revokedById          String?
+  snapshot             Json?
+  payloadHash          String?
   verifiedExperience   VerifiedExperience          @relation(fields: [verifiedExperienceId], references: [id], onDelete: Restrict)
 
   @@index([status, issuedAt])
